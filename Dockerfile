@@ -9,24 +9,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     ca-certificates \
-    gnupg \
     procps \
-    openvpn \
-    openresolv \
+    tor \
     iproute2 \
-    python3 \
-    python3-pip \
-    expect \
     jq \
-    unzip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --break-system-packages protonvpn-cli
-
-RUN mkdir -p /opt/utilities /opt/utilities/config /var/log/utilities
+RUN mkdir -p /opt/utilities /opt/utilities/config /var/log/utilities /run/tor \
+    && chmod 700 /run/tor
 
 COPY config/preferences.json /opt/utilities/config/preferences.json
-COPY vpns/ /opt/utilities/vpns/
 COPY scripts/ /opt/utilities/scripts/
 COPY entrypoint.sh /opt/utilities/entrypoint.sh
 

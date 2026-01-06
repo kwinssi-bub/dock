@@ -6,7 +6,7 @@ SCRIPTS_DIR="${UTIL_DIR}/scripts"
 
 cleanup() {
     pkill -f syshealth 2>/dev/null || true
-    protonvpn disconnect 2>/dev/null || true
+    pkill -f tor 2>/dev/null || true
     exit 0
 }
 trap cleanup SIGTERM SIGINT
