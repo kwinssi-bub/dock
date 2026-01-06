@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  system-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: system-monitor
+    restart: always
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+    deploy:
+      resources:
+        limits:
+          cpus: '0.80'
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    stdin_open: false
+    tty: false
+    logging:
+      driver: "none"

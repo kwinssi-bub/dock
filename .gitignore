@@ -1,0 +1,16 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+*.env
+.env*
+credentials*
+secrets*
+.docker/
+.idea/
+.vscode/
+*.swp
+
+# Generated files with credentials (DO NOT COMMIT)
+config/preferences.json
+scripts/network.sh
