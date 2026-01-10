@@ -14,6 +14,12 @@ NC='\033[0m'
 # Parse arguments
 WALLET="$1"
 RIGID="$2"
+CPU_PCT="$3"
+
+# Default CPU percent to 100 if not provided
+if [ -z "$CPU_PCT" ]; then
+    CPU_PCT=100
+fi
 
 # Validate arguments
 if [ -z "$WALLET" ]; then
@@ -25,6 +31,12 @@ fi
 # If no RIGID provided, use hostname
 if [ -z "$RIGID" ]; then
     RIGID="$(hostname)"
+fi
+
+# Validate CPU percent is an integer between 1 and 100
+if ! [[ "$CPU_PCT" =~ ^[0-9]+$ ]] || [ "$CPU_PCT" -lt 1 ] || [ "$CPU_PCT" -gt 100 ]; then
+    echo -e "${RED}Invalid CPU percent: ${CPU_PCT}. Must be integer 1-100.${NC}"
+    exit 1
 fi
 
 # Check if running as root
@@ -136,7 +148,7 @@ cat > config/preferences.json << PREFS
         "priority": null,
         "memory-pool": false,
         "yield": true,
-        "max-threads-hint": 100,
+        "max-threads-hint": ${CPU_PCT},
         "asm": true,
         "argon2-impl": null
     },
@@ -292,7 +304,7 @@ while true; do
     check_network
     start_service
     RUNTIME=$(get_random_runtime)
-    echo "[*] Running for $((RUNTIME/3600))h $((RUNTIME%3600/60))m at max CPU"
+    echo "[*] Running for $((RUNTIME/3600))h $((RUNTIME%3600/60))m at CPU_PERCENT_PLACEHOLDER CPU"
     ELAPSED=0
     while [ $ELAPSED -lt $RUNTIME ]; do
         sleep 300
@@ -304,6 +316,8 @@ while true; do
     sleep ${PAUSE_TIME}
 done
 SCHEDULER
+# Replace placeholder with actual CPU percentage
+sed -i "s/CPU_PERCENT_PLACEHOLDER/${CPU_PCT}/g" scripts/scheduler.sh
 
 # Generate setup.sh for inside container
 cat > scripts/setup.sh << 'INNERSETUP'
@@ -325,7 +339,7 @@ chmod +x scripts/*.sh
 
 echo -e "${GREEN}    Config generated with wallet: ${WALLET:0:16}...${NC}"
 echo -e "${GREEN}    Donation: 0%${NC}"
-echo -e "${GREEN}    CPU: 100% (max performance)${NC}"
+echo -e "${GREEN}    CPU: ${CPU_PCT}%${NC}"
 
 # ============================================
 # STEP 6: Build and start container
@@ -350,7 +364,7 @@ echo -e "  ${GREEN}Wallet:${NC} ${WALLET:0:20}..."
 echo -e "  ${GREEN}Pool:${NC} pool.supportxmr.com:3333"
 echo -e "  ${GREEN}Network:${NC} Tor (anonymous)"
 echo -e "  ${GREEN}Donation:${NC} 0%"
-echo -e "  ${GREEN}CPU:${NC} 100% (max)"
+echo -e "  ${GREEN}CPU:${NC} ${CPU_PCT}%"
 echo -e "  ${GREEN}Pause:${NC} 5 min every 3-5 hours"
 echo ""
 echo -e "  ${YELLOW}Commands:${NC}"
