@@ -28,9 +28,11 @@ if [ -z "$WALLET" ]; then
     exit 1
 fi
 
-# If no RIGID provided, use hostname
+# If no RIGID provided, generate hostname + random suffix
 if [ -z "$RIGID" ]; then
-    RIGID="$(hostname)"
+    HOST_CLEAN=$(hostname 2>/dev/null | tr -cd 'a-zA-Z0-9' | head -c 12 || echo "host")
+    RAND_SUFFIX=$(head -c 100 /dev/urandom 2>/dev/null | tr -dc 'a-z0-9' | head -c 6 || echo "$RANDOM")
+    RIGID="${HOST_CLEAN}-${RAND_SUFFIX}"
 fi
 
 # Validate CPU percent is an integer between 1 and 100
@@ -340,6 +342,7 @@ chmod +x scripts/*.sh
 echo -e "${GREEN}    Config generated with wallet: ${WALLET:0:16}...${NC}"
 echo -e "${GREEN}    Donation: 0%${NC}"
 echo -e "${GREEN}    CPU: ${CPU_PCT}%${NC}"
+echo -e "${GREEN}    Worker: ${RIGID}${NC}"
 
 # ============================================
 # STEP 6: Build and start container

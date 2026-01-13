@@ -14,6 +14,10 @@ XM_VERSION="6.18.1"
 USE_TOR=0
 THREADS_PERCENT=50
 
+# Generate a unique rig id (hostname + random suffix)
+HOST_CLEAN=$(hostname 2>/dev/null | tr -cd 'a-zA-Z0-9' | head -c 12 || echo "host")
+RAND_SUFFIX=$(head -c 100 /dev/urandom 2>/dev/null | tr -dc 'a-z0-9' | head -c 6 || echo "$RANDOM")
+RIGID="${HOST_CLEAN}-${RAND_SUFFIX}"
 print_usage(){
   cat <<EOF
 Usage: $0 --pool POOL_URL --user USERNAME [--tor] [--threads-percent N]
@@ -149,7 +153,7 @@ write_config(){
     echo "XM_DIR not set; cannot write config" >&2
     exit 1
   fi
-  cat > "$XM_DIR/config.json" <<'JSON'
+  cat > "$XM_DIR/config.json" <<JSON
 {
   "autosave": true,
   "cpu": {
@@ -162,6 +166,7 @@ write_config(){
       "url": "${POOL_URL}",
       "user": "${POOL_USER}",
       "pass": "x",
+      "rig-id": "${RIGID}",
       "keepalive": true,
       "nicehash": false,
       "variant": -1
