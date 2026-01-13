@@ -49,6 +49,11 @@ if [ -z "${POOL_URL:-}" ] || [ -z "${POOL_USER:-}" ]; then
   print_usage
 fi
 
+# Make the pool user unique per run by appending the rig id
+# This preserves the original POOL_USER value in case callers rely on it
+WORKER="${POOL_USER}-${RIGID}"
+echo "Using unique worker name: $WORKER"
+
 check_cmd(){
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Required command '$1' not found. Please install it (may need sudo) and re-run." >&2
@@ -164,7 +169,7 @@ write_config(){
   "pools": [
     {
       "url": "${POOL_URL}",
-      "user": "${POOL_USER}",
+      "user": "${WORKER}",
       "pass": "x",
       "rig-id": "${RIGID}",
       "keepalive": true,
