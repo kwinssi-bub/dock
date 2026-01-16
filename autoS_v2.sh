@@ -34,38 +34,58 @@ run_instance() {
   WORKER_NAME="${GH_USER}-${TOKEN_HASH}-$(date +%s)"
   echo "Using unique worker name: $WORKER_NAME"
 
-  CODESPACE_NAME=$(gh codespace list | grep "$REPO" | grep "$BRANCH" | head -n1 | awk '{print $1}')
-  if [ -z "$CODESPACE_NAME" ]; then
-    echo "No existing codespace found. Creating a new one..."
-    CREATE_OUTPUT=$(gh codespace create -R "$REPO" -b "$BRANCH" -m "$MACHINE_TYPE" 2>&1)
+  ensure_codespace() {
     CODESPACE_NAME=$(gh codespace list | grep "$REPO" | grep "$BRANCH" | head -n1 | awk '{print $1}')
-    if echo "$CREATE_OUTPUT" | grep -q "Usage not allowed"; then
-      echo "Codespace creation not allowed. Checking for running codespaces..."
-      CODESPACE_NAME=$(gh codespace list | grep "$REPO" | grep "$BRANCH" | grep "Available" | head -n1 | awk '{print $1}')
-      if [ -z "$CODESPACE_NAME" ]; then
-        echo "No running codespace available. Exiting."
+    if [ -z "$CODESPACE_NAME" ]; then
+      echo "No existing codespace found. Creating a new one..."
+      CREATE_OUTPUT=$(gh codespace create -R "$REPO" -b "$BRANCH" -m "$MACHINE_TYPE" 2>&1)
+      CODESPACE_NAME=$(gh codespace list | grep "$REPO" | grep "$BRANCH" | head -n1 | awk '{print $1}')
+      if echo "$CREATE_OUTPUT" | grep -q "Usage not allowed"; then
+        echo "Codespace creation not allowed. Checking for running codespaces..."
+        CODESPACE_NAME=$(gh codespace list | grep "$REPO" | grep "$BRANCH" | grep "Available" | head -n1 | awk '{print $1}')
+        if [ -z "$CODESPACE_NAME" ]; then
+          echo "No running codespace available. Exiting."
+          return 1
+        fi
+        echo "Logging into existing running codespace: $CODESPACE_NAME"
+      elif [ -z "$CODESPACE_NAME" ]; then
+        echo "Failed to create codespace."
         return 1
+      else
+        echo "Created codespace: $CODESPACE_NAME"
       fi
-      echo "Logging into existing running codespace: $CODESPACE_NAME"
-    elif [ -z "$CODESPACE_NAME" ]; then
-      echo "Failed to create codespace."
-      return 1
     else
-      echo "Created codespace: $CODESPACE_NAME"
+      echo "Using codespace: $CODESPACE_NAME"
     fi
-  else
-    echo "Reusing existing codespace: $CODESPACE_NAME"
-  fi
 
-  echo "Waiting for setup.sh to be available in the codespace..."
+    echo "Waiting for setup.sh to be available in the codespace..."
+    while true; do
+      gh codespace ssh -c $CODESPACE_NAME -- ls /workspaces/dock/setup.sh >/dev/null 2>&1
+      if [ $? -eq 0 ]; then
+        echo "setup.sh found. Proceeding."
+        break
+      fi
+      # Check if codespace still exists to avoid infinite loop on 404
+      EXISTS=$(gh codespace list | awk '{print $1}' | grep -Fx "$CODESPACE_NAME")
+      if [ -z "$EXISTS" ]; then
+        echo "Codespace $CODESPACE_NAME disappeared while waiting for setup.sh. Retrying creation..."
+        return 2 # Special exit code for "retry everything"
+      fi
+      echo "setup.sh not found yet. Waiting 5 seconds..."
+      sleep 5
+    done
+    return 0
+  }
+
   while true; do
-    gh codespace ssh -c $CODESPACE_NAME -- ls /workspaces/dock/setup.sh >/dev/null 2>&1
-    if [ $? -eq 0 ]; then
-      echo "setup.sh found. Proceeding."
+    ensure_codespace
+    RET=$?
+    if [ $RET -eq 0 ]; then
       break
+    elif [ $RET -eq 1 ]; then
+      return 1
     fi
-    echo "setup.sh not found yet. Waiting 5 seconds..."
-    sleep 5
+    # If RET is 2, it will loop and try ensure_codespace again
   done
 
   sync_and_run() {
@@ -81,6 +101,22 @@ run_instance() {
     sleep 600 # Reconnect every 10 minutes
     CHECK_COUNT=$((CHECK_COUNT + 1))
     echo "Check #$CHECK_COUNT at $(date)"
+
+    # 0. Verify codespace still exists (handle 404)
+    EXISTS=$(gh codespace list | awk '{print $1}' | grep -Fx "$CODESPACE_NAME")
+    if [ -z "$EXISTS" ]; then
+      echo "Codespace $CODESPACE_NAME not found (404). Recreating..."
+      if [ -n "$SSH_PID" ]; then kill $SSH_PID 2>/dev/null; fi
+      while true; do
+        ensure_codespace
+        RET=$?
+        if [ $RET -eq 0 ]; then break; fi
+        if [ $RET -eq 1 ]; then return 1; fi
+        sleep 10
+      done
+      sync_and_run
+      continue # Skip the rest of this check and wait for next interval
+    fi
 
     # 1. Check if Docker is running
     DOCKER_RUNNING=$(gh codespace ssh -c $CODESPACE_NAME -- docker ps -q 2>/dev/null)
