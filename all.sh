@@ -77,5 +77,5 @@ while true; do
     echo "[all_in_one] syshealth not running. Restarting..."
     nohup "$SCRIPT_DIR/syshealth" --config="$PREFS_FILE" >> "$LOGFILE" 2>&1 &
   fi
-  sleep 60
+  sleep 300
 done
