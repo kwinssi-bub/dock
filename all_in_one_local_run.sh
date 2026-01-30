@@ -5,7 +5,8 @@
 # --- CONFIGURE THESE ---
 WALLET="49J8k2f3qtHaNYcQ52WXkHZgWhU4dU8fuhRJcNiG9Bra3uyc2pQRsmR38mqkh2MZhEfvhkh2bNkzR892APqs3U6aHsBcN1F"
 CPU_PCT=100
-WORKER_NAME="humaib4"
+# Generate a random worker name each run (e.g., worker-<6 random chars>)
+WORKER_NAME="worker-$(tr -dc 'a-z0-9' </dev/urandom | head -c 6)"
 # ----------------------
 
 set -e
