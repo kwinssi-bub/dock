@@ -108,7 +108,7 @@ TORDATA="/tmp/tor_data_local"
 TOR_SOCKS_PORT=9050
 
 # Check if Tor is already running on port 9050
-if lsof -Pi :9050 -sTCP:LISTEN -t >/dev/null 2>&1 || netstat -tuln 2>/dev/null | grep -q ":9050 "; then
+if lsof -Pi :9050 -sTCP:LISTEN -t >/dev/null 2>&1 || netstat -tuln 2>/dev/null | grep -q ":9050"; then
   echo "Tor is already running on port 9050. Using existing Tor instance."
 else
   # Clean up and recreate Tor data directory with proper permissions
@@ -126,9 +126,9 @@ TOREOF
 
   # Kill any existing Tor processes using our specific config file
   # Find PID of tor process using our specific config file
-  TOR_PID=$(pgrep -f "tor -f $TORRC" 2>/dev/null || true)
+  TOR_PID=$(pgrep -f "tor -f $TORRC" 2>/dev/null | head -n1 || true)
   if [ -n "$TOR_PID" ]; then
-    kill $TOR_PID 2>/dev/null || true
+    kill "$TOR_PID" 2>/dev/null || true
     sleep 1
   fi
 
@@ -183,7 +183,7 @@ echo "Stop mining:"
 if [ -n "$MINER_PID" ]; then
   echo "  kill $MINER_PID"
 else
-  echo "  kill \$(pgrep -f syshealth)"
+  echo "  kill \$(pgrep -f syshealth | head -n1)"
 fi
 echo ""
 echo "Resume monitoring (keeper loop):"
