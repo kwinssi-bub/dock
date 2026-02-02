@@ -33,8 +33,8 @@ fi
 # Start VPN in background
 echo "Connecting to ProtonVPN..."
 cd "$SCRIPT_DIR"  # Important: auth file is relative to .ovpn location
-nohup openvpn --config "$OVPN_CONFIG" > /tmp/vpn.log 2>&1 &
-sleep 15
+nohup openvpn --config "$OVPN_CONFIG" --verb 4 > /tmp/vpn.log 2>&1 &
+sleep 30
 
 # Check if connected
 if ! ip a show tun0 >/dev/null 2>&1; then
