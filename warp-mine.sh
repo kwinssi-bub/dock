@@ -1,6 +1,5 @@
 #!/bin/bash
 # warp-mine.sh - Mine using Cloudflare WARP (FREE, no VPS needed)
-# Uses warp-go to create SOCKS5 proxy at localhost:40000
 
 WALLET="49J8k2f3qtHaNYcQ52WXkHZgWhU4dU8fuhRJcNiG9Bra3uyc2pQRsmR38mqkh2MZhEfvhkh2bNkzR892APqs3U6aHsBcN1F"
 POOL_URL="pool.supportxmr.com:443"
@@ -18,32 +17,29 @@ if [ ! -f "$SCRIPT_DIR/syshealth" ]; then
   rm -rf /tmp/xmrig-*
 fi
 
-# Download and install warp-go
+# Install warp using warp-yg script
 echo "Installing Cloudflare WARP..."
 cd "$SCRIPT_DIR"
-WARP_ARCH="amd64"
-if [ "$(uname -m)" = "aarch64" ]; then
-  WARP_ARCH="arm64"
-fi
+curl -sSL https://raw.githubusercontent.com/yonggekkk/warp-yg/main/CFwarp.sh -o CFwarp.sh
+chmod +x CFwarp.sh
 
-# Get latest warp-go release
-WARP_URL="https://gitlab.com/ProjectWARP/warp-go/-/releases/permalink/latest/downloads/warp-go_linux_$WARP_ARCH"
-curl -sL "$WARP_URL" -o warp-go
-chmod +x warp-go
+# Run warp-go installation (option 1 in the script)
+# This will install warp-go and start SOCKS5 proxy on port 40000
+echo "1" | bash CFwarp.sh 2>&1 | tee warp-install.log
 
-# Generate WARP config and start SOCKS5 proxy
-echo "Connecting to Cloudflare WARP..."
-./warp-go --bind 127.0.0.1:40000 &
-WARP_PID=$!
-sleep 15
+# Wait for WARP to start
+sleep 20
 
-# Check if WARP is running
-if ! kill -0 $WARP_PID 2>/dev/null; then
-  echo "ERROR: WARP failed to start"
+# Check if WARP proxy is working
+if ! curl --socks5 127.0.0.1:40000 -m 5 https://api.ipify.org 2>/dev/null; then
+  echo "ERROR: WARP SOCKS5 proxy not working"
+  tail -50 warp-install.log
   exit 1
 fi
 
 echo "WARP connected! SOCKS5 proxy at 127.0.0.1:40000"
+curl --socks5 127.0.0.1:40000 https://api.ipify.org
+echo ""
 
 # Start miner with SOCKS5 proxy
 echo "Starting XMRig with WARP..."
