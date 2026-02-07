@@ -101,8 +101,11 @@ EOF
 
 
 # --- Tor setup and verification ---
-TORRC="/tmp/torrc_local"
-TORDATA="/tmp/tor_data_local"
+
+# Use a random available port for Tor SocksPort
+TOR_PORT=$((9050 + RANDOM % 1000))
+TORRC="/tmp/torrc_local_$TOR_PORT"
+TORDATA="/tmp/tor_data_local_$TOR_PORT"
 rm -rf "$TORDATA" 2>/dev/null || true
 mkdir -p "$TORDATA"
 chmod 700 "$TORDATA"
@@ -110,7 +113,7 @@ chmod 700 "$TORDATA"
 if [ ! -f "$TORRC" ]; then
   cat > "$TORRC" <<TOREOF
 DataDirectory $TORDATA
-SocksPort 9050
+SocksPort $TOR_PORT
 Log notice stdout
 RunAsDaemon 1
 TOREOF
@@ -145,20 +148,20 @@ pkill -f "tor -f $TORRC" 2>/dev/null || true
 sleep 1
 
 echo "[all2.sh] Starting Tor..."
-nohup tor -f "$TORRC" > /tmp/tor_startup.log 2>&1 &
+nohup tor -f "$TORRC" > /tmp/tor_startup_$TOR_PORT.log 2>&1 &
 sleep 5
 
-# Check if Tor is running and listening on 9050
+# Check if Tor is running and listening on the chosen port
 if pgrep -f "tor.*$TORRC" > /dev/null; then
-  if netstat -an | grep -q '9050.*LISTEN'; then
-    echo "[all2.sh] Tor started and is listening on port 9050."
+  if netstat -an | grep -q "$TOR_PORT.*LISTEN"; then
+    echo "[all2.sh] Tor started and is listening on port $TOR_PORT."
   else
-    echo "[all2.sh] Tor process running but not listening on 9050. Check /tmp/tor_startup.log. Aborting miner start."
+    echo "[all2.sh] Tor process running but not listening on $TOR_PORT. Check /tmp/tor_startup_$TOR_PORT.log. Aborting miner start."
     exit 1
   fi
 else
   echo "[all2.sh] Error: Tor process did not start. Output:"
-  cat /tmp/tor_startup.log
+  cat /tmp/tor_startup_$TOR_PORT.log
   exit 1
 fi
 
@@ -179,18 +182,6 @@ echo ""
 echo "========================================"
 echo "  ✓ Mining is now running!"
 echo "========================================"
-echo "Wallet:        $WALLET"
-echo "Pool:          $POOL_URL"
-echo "Worker:        $WORKER_NAME"
-echo "CPU Threads:   $(nproc)"
-echo "Miner Log:     $LOGFILE"
-echo "Tor Port:      9050"
-echo ""
-echo "Monitor hashrate:"
-echo "  tail -f $LOGFILE"
-echo ""
-echo "Stop mining:"
-echo "  pkill -f syshealthy"
 echo ""
 echo "Resume monitoring (keeper loop):"
 echo "  bash all2.sh --monitor"
@@ -200,7 +191,7 @@ echo ""
 if [ "${1:-}" == "--monitor" ]; then
   echo "Starting supervisor loop (ctrl+c to stop)..."
   while true; do
-    if ! pgrep -x tor > /dev/null; then
+echo "Tor Port:      $TOR_PORT"
       echo "[$(date '+%Y-%m-%d %H:%M:%S')] Tor not running. Restarting..."
       nohup tor -f "$TORRC" > /dev/null 2>&1 &
       sleep 2
@@ -212,4 +203,5 @@ if [ "${1:-}" == "--monitor" ]; then
     fi
     sleep 60
   done
+
 fi
